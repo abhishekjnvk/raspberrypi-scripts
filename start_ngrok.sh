@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Set local port from command line arg or default to 8080
-LOCAL_PORT=${1-8080}
+LOCAL_PORT=${1-80}
 echo "Start ngrok in background on port [ $LOCAL_PORT ]"
 nohup ngrok http --domain=live-kiwi-innocent.ngrok-free.app ${LOCAL_PORT} & >/dev/null &
 
