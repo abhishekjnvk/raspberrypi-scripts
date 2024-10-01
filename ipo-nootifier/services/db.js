@@ -3,6 +3,10 @@ const Datastore = require('nedb');
 class DBWrapper {
   constructor(filePath) {
     this.db = new Datastore({ filename: filePath, autoload: true });
+    this.TABLE_NAME={
+      SUBSCRIPTIONS: "subscriptions",
+      IPO: "ipo",
+    }
   }
 
   // Create (Insert)
@@ -57,6 +61,17 @@ class DBWrapper {
   async delete(tableName, id) {
     return new Promise((resolve, reject) => {
       this.db.remove({ table: tableName, _id: id }, {}, (err, numRemoved) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(numRemoved);
+      });
+    });
+  }
+
+  async deleteAll(tableName) {
+    return new Promise((resolve, reject) => {
+      this.db.remove({ table: tableName }, { multi: true }, (err, numRemoved) => {
         if (err) {
           return reject(err);
         }

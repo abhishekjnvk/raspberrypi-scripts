@@ -1,53 +1,45 @@
-require('dotenv').config()
+require("dotenv").config();
 const cron = require("node-cron");
-const { bot } = require("./services/telegram");
+const { bot, REMINDER_MARKUP } = require("./services/telegram");
 const db = require("./services/db");
-const { sendNotifications } = require("./services/notification");
-const TABLE_NAME = {
-  SUBSCRIPTIONS: "subscriptions",
-};
+const {
+  sendNotifications,
+  getClosingIpoMessage,
+  getAllIpoMessage,
+} = require("./services/notification");
 
 const NOTIFICATION_CRON = process.env.NOTIFICATION_CRON_TIME || "00 09 * * *"; // daily at 9:00 AM
 
-const subscribe = async (ctx) => {
+const handleSubscription = async (ctx, action) => {
   try {
     const chatId = ctx.message.chat.id;
-    let body = {
-      name: ctx.message.chat.first_name,
-      username: ctx.message.chat.username,
-      type: ctx.message.chat.type,
-      _id: chatId,
-    };
     if (!chatId) throw Error("Chat id is required");
 
-    let getById = await db.getById(TABLE_NAME.SUBSCRIPTIONS, chatId);
     let message = "";
-    if (!getById) {
-      db.create(TABLE_NAME.SUBSCRIPTIONS, body);
-      console.log("Subscribed by " + body.username);
-      message =
-        "You have been subscribed! you will get notifications for closing IPO";
-    } else {
-      message = "You are already subscribed!";
-    }
-    ctx.reply(message);
-  } catch (error) {
-    console.error(error);
-    ctx.reply("Something went wrong");
-  }
-};
-
-const unsubscribe = async (ctx) => {
-  try {
-    const chatId = ctx.message.chat.id;
-    let userData = await db.getById(TABLE_NAME.SUBSCRIPTIONS, chatId);
-    let message = "";
-    if (!userData) {
-      message = "You are not subscribed";
-    } else {
-      db.delete(TABLE_NAME.SUBSCRIPTIONS, chatId);
-      message = "You have been unsubscribed!";
-      console.log("Subscribed by " + userData.username);
+    if (action === "subscribe") {
+      const body = {
+        name: ctx.message.chat.first_name,
+        username: ctx.message.chat.username,
+        type: ctx.message.chat.type,
+        _id: chatId,
+      };
+      const getById = await db.getById(db.TABLE_NAME.SUBSCRIPTIONS, chatId);
+      if (!getById) {
+        await db.create(db.TABLE_NAME.SUBSCRIPTIONS, body);
+        console.log("Subscribed by " + body.username);
+        message = "You have been subscribed! You will get notifications for closing IPOs.";
+      } else {
+        message = "You are already subscribed!";
+      }
+    } else if (action === "unsubscribe") {
+      const userData = await db.getById(db.TABLE_NAME.SUBSCRIPTIONS, chatId);
+      if (!userData) {
+        message = "You are not subscribed";
+      } else {
+        await db.delete(db.TABLE_NAME.SUBSCRIPTIONS, chatId);
+        console.log("Unsubscribed by " + userData.username);
+        message = "You have been unsubscribed!";
+      }
     }
 
     ctx.reply(message);
@@ -57,10 +49,42 @@ const unsubscribe = async (ctx) => {
   }
 };
 
-const handleCustomMessage = async (ctx) => {
+const handleIpoMessage = async (ctx, type) => {
   try {
-    let message = "Invalid command";
-    ctx.reply(message);
+    const message = type === "closingToday" ? await getClosingIpoMessage() : await getAllIpoMessage();
+    if (message) {
+      ctx.reply(message, { parse_mode: "Markdown", reply_markup: type === "closingToday" ? REMINDER_MARKUP : undefined });
+    } else {
+      ctx.reply(type === "closingToday" ? "No IPOs closing today" : "No IPOs available");
+    }
+  } catch (error) {
+    console.error(error);
+    ctx.reply("Something went wrong");
+  }
+};
+
+const handleRemindAction = async (ctx) => {
+  try {
+    ctx.answerCbQuery();
+    const messageId = ctx.update.callback_query.message.message_id;
+      ctx.telegram.editMessageReplyMarkup(ctx.chat.id, messageId, null);
+      
+    const messageTime = ctx.update.callback_query.message.date;
+    const thresholdTime = 2 * 3600; // 2 hours
+
+    if ((messageTime + thresholdTime) * 1000 < Date.now()) {
+      ctx.reply("Sorry, you can't set reminder for messages older than 2 hours");
+      return;
+    }
+
+    ctx.reply("You will be reminded in 1 hour");
+    setTimeout(async () => {
+      const closingTodayMessage = await getClosingIpoMessage();
+      await ctx.reply("As requested, here is your reminder");
+      if (closingTodayMessage) {
+        ctx.reply(closingTodayMessage, { parse_mode: "Markdown" });
+      }
+    }, 3600 * 1000); // 1 hour
   } catch (error) {
     console.error(error);
     ctx.reply("Something went wrong");
@@ -68,17 +92,22 @@ const handleCustomMessage = async (ctx) => {
 };
 
 const registerAllCommands = () => {
-  bot.command("subscribe", subscribe);
-  bot.command("unsubscribe", unsubscribe);
-  const startMessage='Please select a command \n/subscribe - subscribe for daily ipo notifications\n/unsubscribe - unsubscribe from all notifications'
+  bot.command("subscribe", (ctx) => handleSubscription(ctx, "subscribe"));
+  bot.command("unsubscribe", (ctx) => handleSubscription(ctx, "unsubscribe"));
+  bot.command("today", (ctx) => handleIpoMessage(ctx, "closingToday"));
+  bot.command("all", (ctx) => handleIpoMessage(ctx, "all"));
+  bot.command("thanks", (ctx) => ctx.reply(`You're welcome, ${ctx.message.chat.first_name} ❤️`));
+
+  const startMessage =
+    "Please select a command \n/subscribe - subscribe for daily IPO notifications\n/unsubscribe - unsubscribe from all notifications\n/today - get list of IPOs closing today\n/all - get list of all active IPOs";
   bot.help((ctx) => ctx.reply(startMessage));
   bot.start((ctx) => ctx.reply(startMessage));
+  bot.on("message", (ctx) => ctx.reply("Invalid command"));
 
-  bot.on("message", handleCustomMessage);
+  bot.action("remind_me", handleRemindAction);
 };
 
 const startBot = async () => {
-  // Start the bot
   registerAllCommands();
   bot.launch();
   console.log("Bot started");
@@ -91,6 +120,7 @@ const stopBot = async () => {
 
 process.once("SIGINT", stopBot);
 process.once("SIGTERM", stopBot);
+
 const notificationTask = cron.schedule(NOTIFICATION_CRON, sendNotifications);
 notificationTask.start();
 
