@@ -1,2 +1,5 @@
 nohup.out
 mongo-backup/
+database.db
+node_modules/
+.env
