@@ -1,5 +1,6 @@
 require("dotenv").config();
 const cron = require("node-cron");
+const parser = require("cron-parser");
 const { bot, REMINDER_MARKUP } = require("./services/telegram");
 const db = require("./services/db");
 const {
@@ -26,8 +27,8 @@ const handleSubscription = async (ctx, action) => {
       const getById = await db.getById(db.TABLE_NAME.SUBSCRIPTIONS, chatId);
       if (!getById) {
         await db.create(db.TABLE_NAME.SUBSCRIPTIONS, body);
-        console.log("Subscribed by " + body.username);
-        message = "You have been subscribed! You will get notifications for closing IPOs.";
+        message =
+          "You have been subscribed! You will get notifications for closing IPOs.";
       } else {
         message = "You are already subscribed!";
       }
@@ -37,7 +38,6 @@ const handleSubscription = async (ctx, action) => {
         message = "You are not subscribed";
       } else {
         await db.delete(db.TABLE_NAME.SUBSCRIPTIONS, chatId);
-        console.log("Unsubscribed by " + userData.username);
         message = "You have been unsubscribed!";
       }
     }
@@ -51,11 +51,19 @@ const handleSubscription = async (ctx, action) => {
 
 const handleIpoMessage = async (ctx, type) => {
   try {
-    const message = type === "closingToday" ? await getClosingIpoMessage() : await getAllIpoMessage();
+    const message =
+      type === "closingToday"
+        ? await getClosingIpoMessage()
+        : await getAllIpoMessage();
     if (message) {
-      ctx.reply(message, { parse_mode: "Markdown", reply_markup: type === "closingToday" ? REMINDER_MARKUP : undefined });
+      ctx.reply(message, {
+        parse_mode: "Markdown",
+        reply_markup: type === "closingToday" ? REMINDER_MARKUP : undefined,
+      });
     } else {
-      ctx.reply(type === "closingToday" ? "No IPOs closing today" : "No IPOs available");
+      ctx.reply(
+        type === "closingToday" ? "No IPOs closing today" : "No IPOs available"
+      );
     }
   } catch (error) {
     console.error(error);
@@ -67,13 +75,15 @@ const handleRemindAction = async (ctx) => {
   try {
     ctx.answerCbQuery();
     const messageId = ctx.update.callback_query.message.message_id;
-      ctx.telegram.editMessageReplyMarkup(ctx.chat.id, messageId, null);
-      
+    ctx.telegram.editMessageReplyMarkup(ctx.chat.id, messageId, null);
+
     const messageTime = ctx.update.callback_query.message.date;
     const thresholdTime = 2 * 3600; // 2 hours
 
     if ((messageTime + thresholdTime) * 1000 < Date.now()) {
-      ctx.reply("Sorry, you can't set reminder for messages older than 2 hours");
+      ctx.reply(
+        "Sorry, you can't set reminder for messages older than 2 hours"
+      );
       return;
     }
 
@@ -96,7 +106,9 @@ const registerAllCommands = () => {
   bot.command("unsubscribe", (ctx) => handleSubscription(ctx, "unsubscribe"));
   bot.command("today", (ctx) => handleIpoMessage(ctx, "closingToday"));
   bot.command("all", (ctx) => handleIpoMessage(ctx, "all"));
-  bot.command("thanks", (ctx) => ctx.reply(`You're welcome, ${ctx.message.chat.first_name} ❤️`));
+  bot.command("thanks", (ctx) =>
+    ctx.reply(`You're welcome, ${ctx.message.chat.first_name} ❤️`)
+  );
 
   const startMessage =
     "Please select a command \n/subscribe - subscribe for daily IPO notifications\n/unsubscribe - unsubscribe from all notifications\n/today - get list of IPOs closing today\n/all - get list of all active IPOs";
@@ -108,20 +120,44 @@ const registerAllCommands = () => {
 };
 
 const startBot = async () => {
-  registerAllCommands();
-  bot.launch();
-  console.log("Bot started");
+  try {
+    registerAllCommands();
+    await bot.launch(() => {
+      console.log("Bot started");
+    });
+  } catch (error) {
+    console.error("Failed to start bot:", error);
+    process.exit(1);
+  }
 };
 
 const stopBot = async () => {
-  await bot.stop();
-  console.log("Bot stopped");
+  try {
+    await bot.stop();
+    console.log("Bot stopped");
+    process.exit(0);
+  } catch (error) {
+    console.error("Failed to stop bot:", error);
+    process.exit(1);
+  }
+};
+
+const scheduleNotifications = () => {
+  const notificationTask = cron.schedule(NOTIFICATION_CRON, sendNotifications, {
+    name: "daily_notification",
+    timezone: "Asia/Kolkata",
+  });
+  const interval = parser.parseExpression(NOTIFICATION_CRON);
+  console.log(
+    "Notification cron scheduled, first occurrence at: ",
+    interval.next().getTime()
+  );
+
+  notificationTask.start();
 };
 
 process.once("SIGINT", stopBot);
 process.once("SIGTERM", stopBot);
 
-const notificationTask = cron.schedule(NOTIFICATION_CRON, sendNotifications);
-notificationTask.start();
-
 startBot();
+scheduleNotifications();
