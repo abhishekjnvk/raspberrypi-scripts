@@ -1,5 +1,5 @@
 #!/bin/sh
-temperature=$(vcgencmd measure_temp | cut -d= -f2 | cut -d"'" -f1)
+temperature=$(awk '{print $1/1000}' /sys/class/thermal/thermal_zone0/temp)
 disk_used=$(df -h / | awk 'NR==2 {print $3}')
 disk_total=$(df -h / | awk 'NR==2 {print $2}')
 disk_usage=$(df -h / | awk 'NR==2 {print $5}')

@@ -1,9 +1,19 @@
 #!/bin/bash
 
-#https://drive.google.com/file/d/<fileId>/view?usp=sharing # <--- Link of the file on Gdrive to be downloaded 
+# Google Drive File Downloader
+#
+# Link format:
+#   https://drive.google.com/file/d/<fileId>/view?usp=sharing
+#
+# Example:
+#   For link: https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view?usp=sharing
+#   Run:
+#     ./download-drive-file.sh 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs my_file.zip
+#
 if [ "$#" -lt 2 ] 
 then 
-    echo "Usage: ./driveDownload.sh [fileID] [fileName]"
+    echo "Usage: ./download-drive-file.sh [fileID] [fileName]"
+    echo "Example: ./download-drive-file.sh 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs output.zip"
     exit 1
 fi
 
